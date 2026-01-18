@@ -1,0 +1,7 @@
+{
+  "name": "Mountain Echo AI",
+  "description": "A serene voice-driven application that echoes your words with the majesty of a mountain range using Gemini 2.5 Flash Live API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
