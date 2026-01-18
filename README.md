@@ -1,12 +1,10 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+## prototype
+Test Gemini3 - voice
 
-# Run and deploy your AI Studio app
+## Screenshots
+<img width="347" height="536" alt="Screenshot 2026-01-17 at 10 14 18 PM" src="https://github.com/user-attachments/assets/c0031986-b1be-4f7a-b2a7-e39cbd991591" />
+<img width="347" height="536" alt="Screenshot 2026-01-17 at 10 25 43 PM" src="https://github.com/user-attachments/assets/900d7f94-e6ac-4000-a49f-0d73fbeb4cb6" />
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/drive/11yP1twiy9_AMUFf2RvF8qMKmEKGbbGvz
 
 ## Run Locally
 
