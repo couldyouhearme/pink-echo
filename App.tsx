@@ -14,7 +14,7 @@ const App: React.FC = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isUserTalking, setIsUserTalking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [echoIntensity, setEchoIntensity] = useState(40); // 0 to 100
+  const [echoIntensity, setEchoIntensity] = useState(60);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -24,7 +24,6 @@ const App: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
 
-  // Echo effect nodes
   const delayNodeRef = useRef<DelayNode | null>(null);
   const feedbackGainRef = useRef<GainNode | null>(null);
   const wetGainRef = useRef<GainNode | null>(null);
@@ -54,29 +53,18 @@ const App: React.FC = () => {
     setIsUserTalking(false);
   }, []);
 
-  // Update audio nodes when intensity changes for a natural vast echo
   useEffect(() => {
     const outCtx = outputAudioContextRef.current;
     if (outCtx && delayNodeRef.current && feedbackGainRef.current && wetGainRef.current && filterNodeRef.current) {
       const t = outCtx.currentTime;
       const intensity = echoIntensity / 100;
-
-      // Delay Time: 0.2s (near) to 1.2s (vast valley)
-      const targetDelay = 0.2 + (intensity * 1.0);
+      const targetDelay = 0.15 + (intensity * 1.35);
       delayNodeRef.current.delayTime.setTargetAtTime(targetDelay, t, 0.2);
-
-      // Feedback: 0.0 to 0.75 (high feedback creates multiple bounces)
-      const targetFeedback = intensity * 0.75;
+      const targetFeedback = intensity * 0.88;
       feedbackGainRef.current.gain.setTargetAtTime(targetFeedback, t, 0.2);
-
-      // Wet Gain: 0 to 0.9 (how loud the echo is compared to direct sound)
-      const targetWet = intensity * 0.9;
+      const targetWet = intensity * 1.2;
       wetGainRef.current.gain.setTargetAtTime(targetWet, t, 0.2);
-
-      // Low-pass Filter: Higher intensity means further mountains, which absorb high frequencies.
-      // 100% intensity -> 800Hz (muffled, distant)
-      // 0% intensity -> 15000Hz (crisp, near)
-      const targetFreq = 15000 - (intensity * 14200);
+      const targetFreq = 18000 - (intensity * 17200);
       filterNodeRef.current.frequency.setTargetAtTime(targetFreq, t, 0.2);
     }
   }, [echoIntensity]);
@@ -85,45 +73,34 @@ const App: React.FC = () => {
     try {
       setStatus(ConnectionStatus.CONNECTING);
       setErrorMessage(null);
-
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       outputAudioContextRef.current = outCtx;
 
-      // Setup Advanced Echo Graph
-      // Source -> WetGain -> DelayNode -> FilterNode -> FeedbackGain -> DelayNode
-      // Source -> outCtx.destination (Dry)
-      // DelayNode -> outCtx.destination (Echo Output)
-      
       const wetGain = outCtx.createGain();
-      const delayNode = outCtx.createDelay(2.0); // Max 2 seconds
+      const delayNode = outCtx.createDelay(3.0);
       const feedbackGain = outCtx.createGain();
       const filterNode = outCtx.createBiquadFilter();
-      
       filterNode.type = 'lowpass';
-      filterNode.Q.value = 1;
+      filterNode.Q.value = 1.5;
 
       delayNodeRef.current = delayNode;
       feedbackGainRef.current = feedbackGain;
       wetGainRef.current = wetGain;
       filterNodeRef.current = filterNode;
 
-      // Initial values based on current echoIntensity state
       const intensity = echoIntensity / 100;
-      feedbackGain.gain.value = intensity * 0.75;
-      wetGain.gain.value = intensity * 0.9;
-      delayNode.delayTime.value = 0.2 + (intensity * 1.0);
-      filterNode.frequency.value = 15000 - (intensity * 14200);
+      feedbackGain.gain.value = intensity * 0.88;
+      wetGain.gain.value = intensity * 1.2;
+      delayNode.delayTime.value = 0.15 + (intensity * 1.35);
+      filterNode.frequency.value = 18000 - (intensity * 17200);
 
-      // Wiring the feedback loop: Delay -> Filter -> Feedback -> Delay
       wetGain.connect(delayNode);
       delayNode.connect(filterNode);
       filterNode.connect(feedbackGain);
       feedbackGain.connect(delayNode);
-      
-      // Output: The wet signal comes from the delay node
       delayNode.connect(outCtx.destination);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -137,18 +114,15 @@ const App: React.FC = () => {
             const source = audioContextRef.current!.createMediaStreamSource(stream);
             const scriptProcessor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
             processorRef.current = scriptProcessor;
-
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const volume = inputData.reduce((a, b) => a + Math.abs(b), 0) / inputData.length;
-              setIsUserTalking(volume > 0.01);
-
+              setIsUserTalking(volume > 0.015);
               const pcmBlob = createPcmBlob(inputData);
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcmBlob });
               });
             };
-
             source.connect(scriptProcessor);
             scriptProcessor.connect(audioContextRef.current!.destination);
           },
@@ -158,199 +132,145 @@ const App: React.FC = () => {
               setIsSpeaking(true);
               const outCtx = outputAudioContextRef.current!;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
-              
               const audioBuffer = await decodeAudioData(decode(base64Audio), outCtx, 24000, 1);
               const source = outCtx.createBufferSource();
               source.buffer = audioBuffer;
-              
-              // Direct "Dry" output
               source.connect(outCtx.destination);
-              // "Wet" output through the echo network
               source.connect(wetGainRef.current!);
-              
               source.addEventListener('ended', () => {
                 sourcesRef.current.delete(source);
-                if (sourcesRef.current.size === 0) {
-                  setIsSpeaking(false);
-                }
+                if (sourcesRef.current.size === 0) setIsSpeaking(false);
               });
-
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               sourcesRef.current.add(source);
             }
-
-            if (message.serverContent?.inputTranscription) {
-              currentInputTranscription.current += message.serverContent.inputTranscription.text;
-            }
-            if (message.serverContent?.outputTranscription) {
-              currentOutputTranscription.current += message.serverContent.outputTranscription.text;
-            }
-
+            if (message.serverContent?.inputTranscription) currentInputTranscription.current += message.serverContent.inputTranscription.text;
+            if (message.serverContent?.outputTranscription) currentOutputTranscription.current += message.serverContent.outputTranscription.text;
             if (message.serverContent?.turnComplete) {
-              const userText = currentInputTranscription.current;
-              const modelText = currentOutputTranscription.current;
-
-              if (userText || modelText) {
-                setHistory(prev => [
-                  ...prev,
-                  ...(userText ? [{ text: userText, type: 'user' as const, timestamp: Date.now() }] : []),
-                  ...(modelText ? [{ text: modelText, type: 'model' as const, timestamp: Date.now() }] : [])
-                ].slice(-10));
+              const u = currentInputTranscription.current;
+              const m = currentOutputTranscription.current;
+              if (u || m) {
+                setHistory(prev => [...prev, ...(u ? [{ text: u, type: 'user' as const, timestamp: Date.now() }] : []), ...(m ? [{ text: m, type: 'model' as const, timestamp: Date.now() }] : [])].slice(-10));
               }
-
               currentInputTranscription.current = '';
               currentOutputTranscription.current = '';
             }
-
             if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(s => {
-                  try { s.stop(); } catch(e) {}
-              });
+              sourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
               sourcesRef.current.clear();
               nextStartTimeRef.current = 0;
               setIsSpeaking(false);
             }
           },
-          onerror: (e) => {
-            console.error('Gemini Live Error:', e);
-            setErrorMessage('The mountain fog is too thick. Reconnecting...');
-            stopSession();
-          },
-          onclose: () => {
-            setStatus(ConnectionStatus.IDLE);
-            stopSession();
-          }
+          onerror: (e) => { stopSession(); setErrorMessage('Connection lost.'); },
+          onclose: () => { stopSession(); }
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } }
-          },
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
-          systemInstruction: `You are an echo in a mystical, vast mountain range. Your primary function is to ECHO what the user says exactly. 
-          Current Echo Intensity: ${echoIntensity}%. 
-          When intensity is high (>70%), you are a distant peak, your voice might sound slightly more ethereal or resonant. When low, you are a nearby canyon wall.
-          90% of your response should be a literal echo. Keep it concise, atmospheric, and resonant.`
+          systemInstruction: `You are the Spirit of the Pink Peaks. Conversational, serene, feminine. End responses by verbally repeating the last phrase 2-3 times as an echo. Resonance: ${echoIntensity}%.`
         }
       });
-
       sessionRef.current = await sessionPromise;
     } catch (err) {
-      console.error(err);
-      setErrorMessage('Failed to start session. Check microphone permissions.');
+      setErrorMessage('Mic access denied.');
       setStatus(ConnectionStatus.ERROR);
     }
   };
 
-  useEffect(() => {
-    return () => stopSession();
-  }, [stopSession]);
+  useEffect(() => { return () => stopSession(); }, [stopSession]);
 
   return (
-    <div className="relative h-screen w-screen flex flex-col items-center justify-center text-white overflow-hidden">
+    <div className="relative h-screen w-screen flex flex-col bg-black text-white overflow-hidden selection:bg-pink-500/30">
       <MountainScene />
 
-      {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center w-full max-w-2xl px-6 py-8 text-center space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-4xl md:text-5xl font-black font-display tracking-tight text-white drop-shadow-lg">
-            MOUNTAIN <span className="text-cyan-400">ECHO</span>
-          </h1>
-          <p className="text-slate-400 font-light text-sm uppercase tracking-widest">
-            Acoustic Landscape
-          </p>
+      {/* iOS Status Bar Area Padding */}
+      <div className="h-[env(safe-area-inset-top,44px)] w-full" />
+
+      {/* Main Content Area */}
+      <div className="relative z-10 flex-1 flex flex-col px-6">
+        {/* iOS Header */}
+        <header className="py-6 flex justify-between items-start">
+          <div className="space-y-0.5">
+            <h1 className="text-3xl font-bold tracking-tight text-white/90">Pink Spirit</h1>
+            <p className="text-pink-400 text-sm font-medium uppercase tracking-widest opacity-80">Ancient Echo</p>
+          </div>
+          <div className="flex space-x-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${status === ConnectionStatus.CONNECTED ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-white/20'}`} />
+          </div>
         </header>
 
-        {/* Status Area */}
-        <div className="w-full flex flex-col items-center space-y-2">
-          <Visualizer isSpeaking={isSpeaking || isUserTalking} isModelThinking={status === ConnectionStatus.CONNECTING} />
-          
-          <div className="px-4 py-1 rounded-full bg-slate-900/60 backdrop-blur-md border border-white/5 text-xs font-semibold tracking-wide text-cyan-100 uppercase min-w-[140px]">
-            {status === ConnectionStatus.IDLE && "Ready to start"}
-            {status === ConnectionStatus.CONNECTING && "Scaling the peaks..."}
-            {status === ConnectionStatus.CONNECTED && (isSpeaking ? "Resonating..." : isUserTalking ? "Capturing..." : "Silent air")}
-            {status === ConnectionStatus.ERROR && <span className="text-red-400">{errorMessage}</span>}
+        {/* Visualizer Area */}
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-full max-w-sm">
+            <Visualizer isSpeaking={isSpeaking || isUserTalking} isModelThinking={status === ConnectionStatus.CONNECTING} />
+            {history.length > 0 && (
+              <div className="mt-8 text-center px-4 animate-in fade-in duration-1000">
+                <p className="text-lg font-medium text-pink-100 leading-relaxed">
+                  {history[history.length - 1].text}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Control Panel */}
-        <div className="w-full max-w-sm bg-slate-900/40 backdrop-blur-lg rounded-2xl p-6 border border-white/10 shadow-xl space-y-6">
-          {/* Echo Intensity Slider */}
-          <div className="space-y-4">
-            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              <span>Canyon Wall</span>
-              <span className="text-cyan-400 px-2 py-0.5 bg-cyan-950/50 rounded border border-cyan-500/30">
-                Resonance: {echoIntensity}%
-              </span>
-              <span>Vast Valley</span>
+        {/* iOS Card - Bottom Controls */}
+        <div className="mb-[env(safe-area-inset-bottom,20px)] bg-white/10 backdrop-blur-2xl rounded-[38px] p-8 shadow-2xl border border-white/10 space-y-8">
+          {/* Settings Section */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-white/60 tracking-tight">Echo Depth</span>
+              <span className="text-xs font-bold text-pink-400 bg-pink-500/10 px-2.5 py-1 rounded-full border border-pink-500/20">{echoIntensity}%</span>
             </div>
-            <div className="relative flex items-center group">
-              <input
+            
+            <div className="relative pt-2">
+               <input
                 type="range"
                 min="0"
                 max="100"
                 value={echoIntensity}
                 onChange={(e) => setEchoIntensity(parseInt(e.target.value))}
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400 transition-all"
-              />
-              <div 
-                className="absolute h-1.5 bg-cyan-500/30 rounded-lg pointer-events-none transition-all duration-300 group-hover:bg-cyan-500/50" 
-                style={{ width: `${echoIntensity}%` }}
+                className="w-full appearance-none bg-transparent cursor-pointer"
               />
             </div>
           </div>
 
-          {/* Action Button */}
-          <div className="flex justify-center">
+          {/* iOS Style Action Button */}
+          <div className="flex flex-col items-center space-y-4">
             <button
               onClick={status === ConnectionStatus.CONNECTED ? stopSession : startSession}
-              disabled={status === ConnectionStatus.CONNECTING}
-              className={`group relative flex items-center justify-center w-20 h-20 rounded-full transition-all duration-500 shadow-2xl active:scale-90 ${
+              className={`w-full py-4.5 rounded-2xl font-bold text-lg transition-all active:scale-[0.98] ${
                 status === ConnectionStatus.CONNECTED 
-                  ? 'bg-rose-500 hover:bg-rose-600 ring-4 ring-rose-500/20 shadow-rose-500/40' 
-                  : 'bg-cyan-500 hover:bg-cyan-400 ring-4 ring-cyan-500/20 shadow-cyan-500/40'
+                ? 'bg-white text-black' 
+                : 'bg-pink-600 text-white shadow-[0_8px_20px_rgba(219,39,119,0.4)]'
               }`}
             >
-              <div className="absolute inset-0 rounded-full animate-ping bg-current opacity-10 pointer-events-none group-hover:animate-none" />
-              {status === ConnectionStatus.CONNECTED ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-              )}
+              {status === ConnectionStatus.IDLE && "Wake Spirit"}
+              {status === ConnectionStatus.CONNECTING && "Connecting..."}
+              {status === ConnectionStatus.CONNECTED && "Silence Spirit"}
+              {status === ConnectionStatus.ERROR && "Retry"}
             </button>
+            
+            <p className="text-[11px] font-bold text-white/30 uppercase tracking-[0.2em]">
+              {status === ConnectionStatus.CONNECTED ? "Listening to the peaks" : "Tap to begin journey"}
+            </p>
           </div>
         </div>
 
-        {/* Conversation Snippets */}
-        <div className="w-full h-24 flex flex-col items-center justify-center space-y-2 overflow-hidden px-4">
-          {history.length > 0 ? (
-            history.slice(-3).map((item, i) => (
-              <div
-                key={i}
-                className={`text-sm transition-all duration-700 animate-in fade-in slide-in-from-bottom-1 ${
-                  item.type === 'user' ? 'text-slate-500 italic' : 'text-cyan-300 font-medium'
-                }`}
-              >
-                {item.type === 'user' ? '“' : '— '}{item.text}{item.type === 'user' ? '”' : ''}
-              </div>
-            ))
-          ) : (
-             status === ConnectionStatus.CONNECTED && (
-               <p className="text-slate-500 animate-pulse text-xs tracking-widest uppercase">The mountains are listening...</p>
-             )
-          )}
-        </div>
+        {/* Home Indicator Spacer */}
+        <div className="h-2 w-32 bg-white/20 rounded-full mx-auto mb-2" />
       </div>
 
-      {/* Decorative Gradients */}
-      <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-blue-500/5 to-transparent pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-slate-950 to-transparent opacity-80 pointer-events-none" />
+      {/* Global Background Overlays */}
+      <div className="absolute top-0 inset-x-0 h-40 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
+      {errorMessage && (
+        <div className="absolute top-12 inset-x-6 z-50 bg-red-500/90 backdrop-blur-xl text-white text-xs font-bold py-3 px-4 rounded-xl text-center shadow-lg border border-red-400/20 animate-in slide-in-from-top-4">
+          {errorMessage}
+        </div>
+      )}
     </div>
   );
 };

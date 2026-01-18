@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 
 interface VisualizerProps {
   isSpeaking: boolean;
@@ -7,24 +7,25 @@ interface VisualizerProps {
 }
 
 export const Visualizer: React.FC<VisualizerProps> = ({ isSpeaking, isModelThinking }) => {
-  const bars = Array.from({ length: 40 });
+  const bars = Array.from({ length: 32 });
   
   return (
-    <div className="flex items-center justify-center gap-1 h-32 w-full max-w-md">
+    <div className="flex items-center justify-center gap-[3px] h-24 w-full">
       {bars.map((_, i) => (
         <div
           key={i}
-          className={`w-1 rounded-full transition-all duration-300 ${
+          className={`w-[3px] rounded-full transition-all duration-[400ms] ${
             isSpeaking 
-              ? 'bg-cyan-400 animate-bounce' 
+              ? 'bg-pink-400' 
               : isModelThinking 
-                ? 'bg-blue-600 animate-pulse' 
-                : 'bg-slate-700 h-2'
+                ? 'bg-white/40' 
+                : 'bg-white/10 h-[4px]'
           }`}
           style={{
-            height: isSpeaking ? `${Math.random() * 100 + 20}%` : isModelThinking ? '40%' : '8px',
-            animationDelay: `${i * 0.05}s`,
-            animationDuration: isSpeaking ? '0.6s' : '1.5s'
+            height: isSpeaking ? `${Math.max(10, Math.random() * 100)}%` : isModelThinking ? '40%' : '4px',
+            opacity: isSpeaking ? 0.6 + Math.random() * 0.4 : 1,
+            transform: isSpeaking ? `scaleY(${0.8 + Math.random() * 0.4})` : 'none',
+            transitionDelay: `${i * 10}ms`
           }}
         />
       ))}
